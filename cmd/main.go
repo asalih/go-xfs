@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/asalih/go-xfs/xfs"
+	"github.com/asalih/go-xfs"
 )
 
 func main() {
