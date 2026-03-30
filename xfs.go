@@ -102,6 +102,7 @@ func (f *FileSystem) Stat(name string) (fs.FileInfo, error) {
 func (f *FileSystem) Open(name string) (fs.File, error) {
 	const op = "open"
 
+	name = strings.TrimPrefix(name, "/")
 	if !fs.ValidPath(name) {
 		return nil, &fs.PathError{Op: op, Path: name, Err: fs.ErrInvalid}
 	}

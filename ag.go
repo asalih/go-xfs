@@ -161,19 +161,19 @@ func ReadAG(dev io.ReaderAt, offset int64) (*AG, error) {
 		return nil, xerrors.Errorf("failed to parse super block: %w", err)
 	}
 
-	blockSize := int64(sb.BlockSize)
+	sectSize := int64(sb.Sectsize)
 
-	agf, err := readAGF(dev, offset+blockSize)
+	agf, err := readAGF(dev, offset+sectSize)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse agf block: %w", err)
 	}
 
-	agi, err := readAGI(dev, offset+2*blockSize)
+	agi, err := readAGI(dev, offset+2*sectSize)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse agi block: %w", err)
 	}
 
-	agfl, err := readAGFL(dev, offset+3*blockSize)
+	agfl, err := readAGFL(dev, offset+3*sectSize)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to parse agfl block: %w", err)
 	}
