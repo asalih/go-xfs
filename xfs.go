@@ -451,6 +451,55 @@ func (fi *File) Read(buf []byte) (int, error) {
 	return fi.buffer.Read(buf)
 }
 
+func (fi *File) ReadAt(p []byte, off int64) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	fileSize := fi.Size()
+	if off < 0 {
+		return 0, xerrors.New("negative offset")
+	}
+	if off >= fileSize {
+		return 0, io.EOF
+	}
+
+	totalRead := 0
+	for totalRead < len(p) && off < fileSize {
+		blockIdx := off / fi.blockSize
+		offsetInBlock := off % fi.blockSize
+		remaining := fi.blockSize - offsetInBlock
+		if int64(len(p)-totalRead) < remaining {
+			remaining = int64(len(p) - totalRead)
+		}
+		if off+remaining > fileSize {
+			remaining = fileSize - off
+		}
+
+		physBlock, ok := fi.table[blockIdx]
+		if !ok {
+			// Sparse hole: fill with zeros
+			for i := int64(0); i < remaining; i++ {
+				p[totalRead+int(i)] = 0
+			}
+		} else {
+			b, err := fi.fs.readBlock(physBlock, 1)
+			if err != nil {
+				return totalRead, xerrors.Errorf("failed to read block: %w", err)
+			}
+			copy(p[totalRead:totalRead+int(remaining)], b[offsetInBlock:offsetInBlock+remaining])
+		}
+
+		totalRead += int(remaining)
+		off += remaining
+	}
+
+	if totalRead < len(p) {
+		return totalRead, io.EOF
+	}
+	return totalRead, nil
+}
+
 func (fi *File) Close() error {
 	return nil
 }
