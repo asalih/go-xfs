@@ -190,6 +190,17 @@ type SymlinkString struct {
 	Name string
 }
 
+type SymlinkHeader struct {
+	Magic  uint32
+	Offset uint32
+	Bytes  uint32
+	CRC    uint32
+	Owner  uint64
+	Blkno  uint64
+	LSN    uint64
+	UUID   [16]byte
+}
+
 type InodeCore struct {
 	Magic        uint16
 	Mode         uint16
@@ -298,6 +309,12 @@ func (xfs *FileSystem) inodeFormatExtents(r io.Reader, inode Inode) (Inode, erro
 		inode.regularExtent.bmbtRecs, err = xfs.parseBmbtRecs(r, inode.inodeCore.Nextents)
 		if err != nil {
 			return Inode{}, xerrors.Errorf("failed to parse regular bmbt recs: %w", err)
+		}
+	} else if inode.inodeCore.IsSymlink() {
+		inode.regularExtent = &RegularExtent{}
+		inode.regularExtent.bmbtRecs, err = xfs.parseBmbtRecs(r, inode.inodeCore.Nextents)
+		if err != nil {
+			return Inode{}, xerrors.Errorf("failed to parse symlink bmbt recs: %w", err)
 		}
 	}
 

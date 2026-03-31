@@ -23,7 +23,7 @@ func main() {
 	ents, err := fs.ReadDir("/")
 	fmt.Println(err, ents)
 
-	f, err := fs.Open("/etc/os-release")
+	f, err := fs.Open("/symlink")
 	if err != nil {
 		log.Fatalf("open err: %v", err)
 	}
@@ -33,7 +33,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("stat err: %v", err)
 	}
-	fmt.Println(st.Name(), st.IsDir(), st.ModTime())
+	fmt.Println(st.Name(), st.IsDir(), st.ModTime(), st.Sys())
 
 	all, err := io.ReadAll(f)
 	if err != nil {

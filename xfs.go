@@ -2,6 +2,7 @@ package xfs
 
 import (
 	"bytes"
+	"encoding/binary"
 	"io"
 	"io/fs"
 	"path"
@@ -21,7 +22,6 @@ var (
 	_ fs.FileInfo = &FileInfo{}
 	_ fs.DirEntry = dirEntry{}
 
-	ErrOpenSymlink = xerrors.New("symlink open not supported")
 )
 
 var (
@@ -116,8 +116,12 @@ func (f *FileSystem) Open(name string) (fs.File, error) {
 	for _, entry := range dirEntries {
 		if !entry.IsDir() && entry.Name() == fileName {
 			if dir, ok := entry.(dirEntry); ok {
-				if dir.Type().Perm()&0xA000 != 0 {
-					return nil, ErrOpenSymlink
+				if dir.inode.inodeCore.IsSymlink() {
+					file, err := f.newSymlinkFile(dir)
+					if err != nil {
+						return nil, &fs.PathError{Op: op, Path: name, Err: xerrors.Errorf("failed to read symlink: %w", err)}
+					}
+					return file, nil
 				}
 
 				file, err := f.newFile(dir)
@@ -130,6 +134,60 @@ func (f *FileSystem) Open(name string) (fs.File, error) {
 		}
 	}
 	return nil, fs.ErrNotExist
+}
+
+func (f *FileSystem) newSymlinkFile(de dirEntry) (*File, error) {
+	target, err := f.symlinkTarget(de.inode)
+	if err != nil {
+		return nil, err
+	}
+
+	return &File{
+		fs:           f,
+		FileInfo:     de.FileInfo,
+		buffer:       bytes.NewBufferString(target),
+		blockSize:    int64(len(target)),
+		currentBlock: 0,
+		table:        make(dataTable),
+	}, nil
+}
+
+func (f *FileSystem) symlinkTarget(inode *Inode) (string, error) {
+	if inode.symlinkString != nil {
+		return inode.symlinkString.Name, nil
+	}
+
+	if inode.regularExtent == nil {
+		return "", xerrors.New("unsupported symlink format")
+	}
+
+	var target bytes.Buffer
+	for _, rec := range inode.regularExtent.bmbtRecs {
+		p := rec.Unpack()
+		physicalBlockOffset := f.PrimaryAG.SuperBlock.BlockToPhysicalOffset(p.StartBlock)
+		for i := int64(0); i < int64(p.BlockCount); i++ {
+			block, err := f.readBlock(physicalBlockOffset+i, 1)
+			if err != nil {
+				return "", xerrors.Errorf("failed to read symlink block: %w", err)
+			}
+
+			r := bytes.NewReader(block)
+			var hdr SymlinkHeader
+			if err := binary.Read(r, binary.BigEndian, &hdr); err != nil {
+				return "", xerrors.Errorf("failed to read symlink header: %w", err)
+			}
+			if hdr.Magic != XFS_SYMLINK_MAGIC {
+				return "", xerrors.Errorf("invalid symlink magic: 0x%x", hdr.Magic)
+			}
+
+			targetBytes := make([]byte, hdr.Bytes)
+			if _, err := r.Read(targetBytes); err != nil {
+				return "", xerrors.Errorf("failed to read symlink target: %w", err)
+			}
+			target.Write(targetBytes)
+		}
+	}
+	return target.String(), nil
 }
 
 func (f *FileSystem) ReadDir(name string) ([]fs.DirEntry, error) {
@@ -327,12 +385,38 @@ type FileInfo struct {
 	inode *Inode
 }
 
+type XFSFileInfoSys struct {
+	Mask      uint32
+	Blksize   uint32
+	Nlink     uint32
+	UID       uint32
+	GID       uint32
+	Mode      uint16
+	Ino       uint64
+	Size      uint64
+	Blocks    uint64
+	Atime     time.Time
+	Btime     time.Time
+	Ctime     time.Time
+	Mtime     time.Time
+	RdevMajor uint32
+	RdevMinor uint32
+	DevMajor  uint32
+	DevMinor  uint32
+}
+
+func xfsTimestamp(t uint64) time.Time {
+	sec := int64(t >> 32)
+	nsec := int64(t & 0xFFFFFFFF)
+	return time.Unix(sec, nsec)
+}
+
 func (i FileInfo) IsDir() bool {
 	return i.inode.inodeCore.IsDir()
 }
 
 func (i FileInfo) ModTime() time.Time {
-	return time.Unix(int64(i.inode.inodeCore.Mtime), 0)
+	return xfsTimestamp(i.inode.inodeCore.Mtime)
 }
 
 func (i FileInfo) Size() int64 {
@@ -344,7 +428,20 @@ func (i FileInfo) Name() string {
 }
 
 func (i FileInfo) Sys() interface{} {
-	return nil
+	ic := i.inode.inodeCore
+	return &XFSFileInfoSys{
+		Nlink:   ic.NLink,
+		UID:     ic.UID,
+		GID:     ic.GID,
+		Mode:    ic.Mode,
+		Ino:     ic.Ino,
+		Size:    ic.Size,
+		Blocks:  ic.Nblocks,
+		Atime:   xfsTimestamp(ic.Atime),
+		Btime:   xfsTimestamp(ic.Crtime),
+		Ctime:   xfsTimestamp(ic.Ctime),
+		Mtime:   xfsTimestamp(ic.Mtime),
+	}
 }
 
 func (i FileInfo) Mode() fs.FileMode {
