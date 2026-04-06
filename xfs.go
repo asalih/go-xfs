@@ -21,7 +21,6 @@ var (
 	_ fs.File     = &File{}
 	_ fs.FileInfo = &FileInfo{}
 	_ fs.DirEntry = dirEntry{}
-
 )
 
 var (
@@ -405,7 +404,13 @@ type XFSFileInfoSys struct {
 	DevMinor  uint32
 }
 
-func xfsTimestamp(t uint64) time.Time {
+func xfsTimestamp(t uint64, bigtime bool) time.Time {
+	if bigtime {
+		const nsPerSec = 1_000_000_000
+		sec := int64(t/nsPerSec) - XFS_BIGTIME_EPOCH_OFFSET
+		nsec := int64(t % nsPerSec)
+		return time.Unix(sec, nsec)
+	}
 	sec := int64(t >> 32)
 	nsec := int64(t & 0xFFFFFFFF)
 	return time.Unix(sec, nsec)
@@ -416,7 +421,7 @@ func (i FileInfo) IsDir() bool {
 }
 
 func (i FileInfo) ModTime() time.Time {
-	return xfsTimestamp(i.inode.inodeCore.Mtime)
+	return xfsTimestamp(i.inode.inodeCore.Mtime, i.inode.inodeCore.isBigtime())
 }
 
 func (i FileInfo) Size() int64 {
@@ -430,17 +435,17 @@ func (i FileInfo) Name() string {
 func (i FileInfo) Sys() interface{} {
 	ic := i.inode.inodeCore
 	return &XFSFileInfoSys{
-		Nlink:   ic.NLink,
-		UID:     ic.UID,
-		GID:     ic.GID,
-		Mode:    ic.Mode,
-		Ino:     ic.Ino,
-		Size:    ic.Size,
-		Blocks:  ic.Nblocks,
-		Atime:   xfsTimestamp(ic.Atime),
-		Btime:   xfsTimestamp(ic.Crtime),
-		Ctime:   xfsTimestamp(ic.Ctime),
-		Mtime:   xfsTimestamp(ic.Mtime),
+		Nlink:  ic.NLink,
+		UID:    ic.UID,
+		GID:    ic.GID,
+		Mode:   ic.Mode,
+		Ino:    ic.Ino,
+		Size:   ic.Size,
+		Blocks: ic.Nblocks,
+		Atime:  xfsTimestamp(ic.Atime, ic.isBigtime()),
+		Btime:  xfsTimestamp(ic.Crtime, ic.isBigtime()),
+		Ctime:  xfsTimestamp(ic.Ctime, ic.isBigtime()),
+		Mtime:  xfsTimestamp(ic.Mtime, ic.isBigtime()),
 	}
 }
 

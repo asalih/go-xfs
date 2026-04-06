@@ -107,7 +107,7 @@ type BmbtPtr uint64
 type Dir2SfHdr struct {
 	Count   uint8
 	I8Count uint8
-	Parent  uint32
+	Parent  uint64
 }
 
 type Dir2Block struct {
@@ -254,15 +254,28 @@ func (xfs *FileSystem) inodeFormatDevice(inode Inode) Inode {
 func (xfs *FileSystem) inodeFormatLocal(r io.Reader, inode Inode) (Inode, error) {
 	if inode.inodeCore.IsDir() {
 		inode.directoryLocal = &DirectoryLocal{}
-		if err := binary.Read(r, binary.BigEndian, &inode.directoryLocal.dir2SfHdr); err != nil {
-			return Inode{}, xerrors.Errorf("failed to read XFS_DINODE_FMT_LOCAL directory error: %w", err)
+		hdr := &inode.directoryLocal.dir2SfHdr
+		if err := binary.Read(r, binary.BigEndian, &hdr.Count); err != nil {
+			return Inode{}, xerrors.Errorf("failed to read dir2 sf count: %w", err)
+		}
+		if err := binary.Read(r, binary.BigEndian, &hdr.I8Count); err != nil {
+			return Inode{}, xerrors.Errorf("failed to read dir2 sf i8count: %w", err)
 		}
 
-		var isI8count bool
-		if inode.directoryLocal.dir2SfHdr.I8Count != 0 {
-			isI8count = true
+		isI8count := hdr.I8Count != 0
+		if isI8count {
+			if err := binary.Read(r, binary.BigEndian, &hdr.Parent); err != nil {
+				return Inode{}, xerrors.Errorf("failed to read dir2 sf parent (8-byte): %w", err)
+			}
+		} else {
+			var parent32 uint32
+			if err := binary.Read(r, binary.BigEndian, &parent32); err != nil {
+				return Inode{}, xerrors.Errorf("failed to read dir2 sf parent (4-byte): %w", err)
+			}
+			hdr.Parent = uint64(parent32)
 		}
-		for i := 0; i < int(inode.directoryLocal.dir2SfHdr.Count); i++ {
+
+		for i := 0; i < int(hdr.Count); i++ {
 			entry, err := parseEntry(r, isI8count)
 			if err != nil {
 				return Inode{}, xerrors.Errorf("failed to parse entries[%d]: %w", i, err)
@@ -482,6 +495,11 @@ func (xfs *FileSystem) ReadInode(ino uint64) (*Inode, error) {
 
 	if !inode.inodeCore.isSupported() {
 		return nil, xerrors.Errorf("not support inode version %d", inode.inodeCore.Version)
+	}
+
+	if inode.inodeCore.Flags2&XFS_DIFLAG2_NREXT64 != 0 {
+		inode.inodeCore.Nextents = uint32(binary.BigEndian.Uint64(buf[24:32]))
+		inode.inodeCore.Anextents = uint16(binary.BigEndian.Uint32(buf[76:80]))
 	}
 
 	var err error
@@ -806,6 +824,10 @@ func (ic InodeCore) IsSymlink() bool {
 
 func (ic InodeCore) isSupported() bool {
 	return ic.Version == uint8(InodeSupportVersion)
+}
+
+func (ic InodeCore) isBigtime() bool {
+	return ic.Flags2&XFS_DIFLAG2_BIGTIME != 0
 }
 
 // https://github.com/torvalds/linux/blob/d2b6f8a179194de0ffc4886ffc2c4358d86047b8/fs/xfs/libxfs/xfs_bmap_btree.c#L60

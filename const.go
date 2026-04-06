@@ -60,6 +60,28 @@ const (
 )
 
 const (
+	XFS_SB_FEAT_INCOMPAT_FTYPE       = 1 << 0
+	XFS_SB_FEAT_INCOMPAT_SPINODES    = 1 << 1
+	XFS_SB_FEAT_INCOMPAT_META_UUID   = 1 << 2
+	XFS_SB_FEAT_INCOMPAT_BIGTIME     = 1 << 3
+	XFS_SB_FEAT_INCOMPAT_NEEDSREPAIR = 1 << 4
+	XFS_SB_FEAT_INCOMPAT_NREXT64     = 1 << 5
+)
+
+const (
+	XFS_DIFLAG2_BIGTIME = 1 << 3
+	XFS_DIFLAG2_NREXT64 = 1 << 4
+)
+
+const (
+	// XFS_BIGTIME_EPOCH_OFFSET matches the kernel's -(int64_t)S32_MIN = 2^31.
+	// Bigtime timestamps are unsigned 64-bit nanosecond counters relative to
+	// this epoch, which corresponds to Dec 13 1901 20:45:52 UTC (the minimum
+	// representable date for a signed 32-bit Unix timestamp).
+	XFS_BIGTIME_EPOCH_OFFSET = 2147483648
+)
+
+const (
 	XFS_DIR2_DATA_SPACE int64 = iota
 	XFS_DIR2_LEAF_SPACE
 	XFS_DIR2_FREE_SPACE

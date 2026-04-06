@@ -96,3 +96,7 @@ func (sb SuperBlock) BlockToAgBlockNumber(n uint64) uint64 {
 func (sb SuperBlock) BlockToPhysicalOffset(n uint64) int64 {
 	return int64(sb.BlockToAgNumber(n)*uint64(sb.Agblocks) + sb.BlockToAgBlockNumber(n))
 }
+
+func (sb SuperBlock) HasNrext64() bool {
+	return sb.FeaturesIncompat&XFS_SB_FEAT_INCOMPAT_NREXT64 != 0
+}
